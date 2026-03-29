@@ -1,70 +1,87 @@
 #!/usr/bin/env python3
-"""rwlock - Read-write lock with writer priority and fairness control."""
-import sys, json, threading, time
+"""rwlock: Read-write lock (multiple readers, exclusive writer)."""
+import threading, sys, time
 
 class RWLock:
-    def __init__(self, writer_priority=True):
-        self._lock = threading.Lock()
+    def __init__(self):
         self._readers = 0
-        self._writer = False
+        self._lock = threading.Lock()
         self._read_ok = threading.Condition(self._lock)
         self._write_ok = threading.Condition(self._lock)
-        self._waiting_writers = 0
-        self._writer_priority = writer_priority
-        self.stats = {"reads": 0, "writes": 0, "read_waits": 0, "write_waits": 0}
+        self._writing = False
+        self._write_waiting = 0
 
     def read_acquire(self):
         with self._lock:
-            while self._writer or (self._writer_priority and self._waiting_writers > 0):
-                self.stats["read_waits"] += 1
+            while self._writing or self._write_waiting > 0:
                 self._read_ok.wait()
             self._readers += 1
-            self.stats["reads"] += 1
 
     def read_release(self):
         with self._lock:
             self._readers -= 1
             if self._readers == 0:
-                self._write_ok.notify()
+                self._write_ok.notify_all()
 
     def write_acquire(self):
         with self._lock:
-            self._waiting_writers += 1
-            while self._writer or self._readers > 0:
-                self.stats["write_waits"] += 1
+            self._write_waiting += 1
+            while self._writing or self._readers > 0:
                 self._write_ok.wait()
-            self._waiting_writers -= 1
-            self._writer = True
-            self.stats["writes"] += 1
+            self._write_waiting -= 1
+            self._writing = True
 
     def write_release(self):
         with self._lock:
-            self._writer = False
+            self._writing = False
             self._read_ok.notify_all()
-            self._write_ok.notify()
+            self._write_ok.notify_all()
 
-def main():
-    lock = RWLock()
-    results = []
-    def reader(rid):
-        lock.read_acquire()
-        results.append(f"R{rid}+")
-        time.sleep(0.01)
-        results.append(f"R{rid}-")
-        lock.read_release()
-    def writer(wid):
-        lock.write_acquire()
-        results.append(f"W{wid}+")
+def test():
+    rw = RWLock()
+    data = [0]
+    log = []
+    lock = threading.Lock()
+
+    def reader(n):
+        rw.read_acquire()
+        val = data[0]
         time.sleep(0.02)
-        results.append(f"W{wid}-")
-        lock.write_release()
-    threads = []
-    for i in range(4): threads.append(threading.Thread(target=reader, args=(i,)))
-    for i in range(2): threads.append(threading.Thread(target=writer, args=(i,)))
+        with lock:
+            log.append(("read", n, val))
+        rw.read_release()
+
+    def writer(n, val):
+        rw.write_acquire()
+        data[0] = val
+        time.sleep(0.02)
+        with lock:
+            log.append(("write", n, val))
+        rw.write_release()
+
+    # Multiple concurrent readers
+    threads = [threading.Thread(target=reader, args=(i,)) for i in range(5)]
     for t in threads: t.start()
     for t in threads: t.join()
-    print(f"Order: {' '.join(results)}")
-    print(json.dumps(lock.stats, indent=2))
+    with lock:
+        reads = [e for e in log if e[0] == "read"]
+    assert len(reads) == 5
+
+    # Writer exclusivity
+    log.clear()
+    t1 = threading.Thread(target=writer, args=(1, 42))
+    t2 = threading.Thread(target=reader, args=(10,))
+    t1.start()
+    time.sleep(0.005)
+    t2.start()
+    t1.join()
+    t2.join()
+    with lock:
+        write_idx = next(i for i, e in enumerate(log) if e[0] == "write")
+        read_idx = next(i for i, e in enumerate(log) if e[0] == "read")
+    assert write_idx < read_idx  # Writer completes before reader
+    print("All tests passed!")
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 1 and sys.argv[1] == "test": test()
+    else: print("Usage: rwlock.py test")

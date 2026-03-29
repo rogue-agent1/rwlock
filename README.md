@@ -1,11 +1,11 @@
 # rwlock
 
-rwlock - Read-write lock with writer priority and fairness control.
+rwlock: Read-write lock (multiple readers, exclusive writer).
 
-Zero-dependency, single-file Python CLI.
+Single-file, zero-dependency Python CLI.
 
 ## Usage
 
 ```bash
-python3 rwlock.py
+python3 rwlock.py test
 ```
