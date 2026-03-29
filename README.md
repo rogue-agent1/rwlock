@@ -1,8 +1,11 @@
 # rwlock
 
-rwlock: Single-file Python CLI tool. Zero dependencies, Python 3.8+.
+Read-write lock for concurrent access
+
+Zero-dependency, single-file Python 3.8+ CLI tool.
 
 ## Usage
+
 ```bash
-python3 rwlock.py --test
+python rwlock.py
 ```
